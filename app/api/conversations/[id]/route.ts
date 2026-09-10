@@ -14,7 +14,7 @@ export async function GET(
   _req: Request,
   { params }: { params: { id: string } },
 ) {
-  const conversation = getConversation(params.id);
+  const conversation = await getConversation(params.id);
   if (!conversation) {
     return NextResponse.json(
       { error: "Conversation not found" },
@@ -24,7 +24,7 @@ export async function GET(
 
   const publicConversation = toPublicConversation(
     conversation,
-    getVisibleMessages(conversation.id),
+    await getVisibleMessages(conversation.id),
   );
 
   return NextResponse.json({ conversation: publicConversation });

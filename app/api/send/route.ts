@@ -53,14 +53,14 @@ export async function POST(req: NextRequest) {
     notifyEmail = env.defaultNotifyEmail;
   }
 
-  const conversation = createConversation({
+  const conversation = await createConversation({
     senderEmail,
     receiverEmail,
     notifyEmail,
   });
 
   // Record the outbound message immediately so the UI can render it.
-  addMessage({
+  await addMessage({
     conversationId: conversation.id,
     direction: "outbound",
     body: message.trim(),
@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
 
   const publicConversation = toPublicConversation(
     conversation,
-    getVisibleMessages(conversation.id),
+    await getVisibleMessages(conversation.id),
   );
 
   return NextResponse.json(

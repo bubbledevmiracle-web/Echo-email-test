@@ -1,34 +1,38 @@
-// In-memory data store (Section 9).
+// Persistent data store — Upstash Redis (Section 9).
 //
-// Structured as a single module exporting arrays + helper functions so it can
-// later be swapped for Prisma + SQLite/Postgres with minimal churn: replace the
-// bodies of these helpers, keep the signatures.
+// Replaces the previous in-memory store. On a serverless host (Vercel) each
+// lambda instance had its own copy of the old in-memory arrays, so a reply
+// arriving at /api/inbound-email could not see the conversation created by
+// /api/send. Redis is a single shared store all instances read/write, so the
+// send and inbound paths now agree on the same data.
 //
-// State is hung off `globalThis` so it survives Next.js hot-module reloads in
-// dev. Known limitation (Section 17): it does NOT survive a server restart, and
-// on a serverless host each cold lambda gets its own copy.
+// The module boundary is unchanged — the same helper names are exported — but
+// every function is now async because Redis I/O is async. All callers await.
+//
+// Key layout:
+//   conv:<id>            -> Conversation (JSON)
+//   conversations        -> sorted set of conversation ids, scored by createdAt
+//   msgs:<conversationId> -> list of Message (JSON), in insertion order
+//
+// @upstash/redis serialises objects to JSON on write and parses them back on
+// read automatically, so we store/read plain objects.
 
 import { randomUUID } from "crypto";
+import { Redis } from "@upstash/redis";
 import type { Conversation, Message, MessageDirection } from "./types";
 
-type StoreShape = {
-  conversations: Conversation[];
-  messages: Message[];
-};
+// Reads UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN from the env.
+const redis = Redis.fromEnv();
 
-const globalForStore = globalThis as unknown as {
-  __echomailStore?: StoreShape;
-};
+const convKey = (id: string) => `conv:${id}`;
+const msgsKey = (conversationId: string) => `msgs:${conversationId}`;
+const CONVERSATIONS_INDEX = "conversations";
 
-const store: StoreShape =
-  globalForStore.__echomailStore ??
-  (globalForStore.__echomailStore = { conversations: [], messages: [] });
-
-export function createConversation(input: {
+export async function createConversation(input: {
   senderEmail: string;
   receiverEmail: string;
   notifyEmail: string;
-}): Conversation {
+}): Promise<Conversation> {
   const conversation: Conversation = {
     id: randomUUID(),
     senderEmail: input.senderEmail,
@@ -36,26 +40,38 @@ export function createConversation(input: {
     notifyEmail: input.notifyEmail,
     createdAt: new Date().toISOString(),
   };
-  store.conversations.push(conversation);
+  await redis.set(convKey(conversation.id), conversation);
+  // Score by creation time so listConversations can return newest-first.
+  await redis.zadd(CONVERSATIONS_INDEX, {
+    score: Date.parse(conversation.createdAt),
+    member: conversation.id,
+  });
   return conversation;
 }
 
-export function getConversation(id: string): Conversation | undefined {
-  return store.conversations.find((c) => c.id === id);
+export async function getConversation(
+  id: string,
+): Promise<Conversation | undefined> {
+  const conversation = await redis.get<Conversation>(convKey(id));
+  return conversation ?? undefined;
 }
 
-export function listConversations(): Conversation[] {
-  return [...store.conversations].sort((a, b) =>
-    a.createdAt < b.createdAt ? 1 : -1,
-  );
+export async function listConversations(): Promise<Conversation[]> {
+  // Newest first (highest score first).
+  const ids = await redis.zrange<string[]>(CONVERSATIONS_INDEX, 0, -1, {
+    rev: true,
+  });
+  if (ids.length === 0) return [];
+  const conversations = await Promise.all(ids.map((id) => getConversation(id)));
+  return conversations.filter((c): c is Conversation => c !== undefined);
 }
 
-export function addMessage(input: {
+export async function addMessage(input: {
   conversationId: string;
   direction: MessageDirection;
   body: string;
   isFiltered: boolean;
-}): Message {
+}): Promise<Message> {
   const message: Message = {
     id: randomUUID(),
     conversationId: input.conversationId,
@@ -67,19 +83,23 @@ export function addMessage(input: {
     visibleToSender: !input.isFiltered,
     createdAt: new Date().toISOString(),
   };
-  store.messages.push(message);
+  await redis.rpush(msgsKey(input.conversationId), message);
   return message;
 }
 
 // Returns ALL messages for a conversation (visible + hidden). Server-side only.
-export function getAllMessages(conversationId: string): Message[] {
-  return store.messages
-    .filter((m) => m.conversationId === conversationId)
-    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+export async function getAllMessages(
+  conversationId: string,
+): Promise<Message[]> {
+  const messages = await redis.lrange<Message>(msgsKey(conversationId), 0, -1);
+  return messages.sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
 }
 
 // Returns only what the sender's UI is allowed to see: all outbound messages
 // plus inbound messages that passed the profanity filter.
-export function getVisibleMessages(conversationId: string): Message[] {
-  return getAllMessages(conversationId).filter((m) => m.visibleToSender);
+export async function getVisibleMessages(
+  conversationId: string,
+): Promise<Message[]> {
+  const all = await getAllMessages(conversationId);
+  return all.filter((m) => m.visibleToSender);
 }

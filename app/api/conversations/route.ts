@@ -8,8 +8,11 @@ import { toPublicConversation } from "@/lib/serialize";
 export const runtime = "nodejs";
 
 export async function GET() {
-  const conversations = listConversations().map((c) =>
-    toPublicConversation(c, getVisibleMessages(c.id)),
+  const list = await listConversations();
+  const conversations = await Promise.all(
+    list.map(async (c) =>
+      toPublicConversation(c, await getVisibleMessages(c.id)),
+    ),
   );
   return NextResponse.json({ conversations });
 }

@@ -21,7 +21,7 @@ export async function processInboundReply(input: {
   conversationId: string;
   strippedText: string;
 }): Promise<ProcessResult> {
-  const conversation = getConversation(input.conversationId);
+  const conversation = await getConversation(input.conversationId);
   if (!conversation) {
     return { ok: false, reason: "unknown-conversation" };
   }
@@ -35,7 +35,7 @@ export async function processInboundReply(input: {
 
   // Always store the full, unfiltered text. visibleToSender is derived from
   // isFiltered inside the store.
-  addMessage({
+  await addMessage({
     conversationId: conversation.id,
     direction: "inbound",
     body,
