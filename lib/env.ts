@@ -14,6 +14,11 @@ export const env = {
   // account email) — verify a domain to send to arbitrary recipients.
   resendFromAddress: process.env.RESEND_FROM_ADDRESS ?? "onboarding@resend.dev",
   slackWebhookUrl: process.env.SLACK_WEBHOOK_URL ?? "",
+  // OpenAI API key for the AI moderation checker (lib/moderation.ts). When
+  // unset, moderation falls back to the offline dictionary in lib/profanity.ts.
+  openaiApiKey: process.env.OPENAI_API_KEY ?? "",
+  // Model used for moderation. Small/fast/cheap by default; override if needed.
+  openaiModerationModel: process.env.OPENAI_MODERATION_MODEL ?? "gpt-4o-mini",
   appBaseUrl: process.env.APP_BASE_URL ?? "",
   defaultNotifyEmail: process.env.DEFAULT_NOTIFY_EMAIL ?? "",
 };

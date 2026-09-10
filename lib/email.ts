@@ -70,13 +70,18 @@ export async function sendNotifyEmail(args: {
   receiverEmail: string;
   body: string;
   isFiltered: boolean;
+  /** Why moderation flagged the message (only meaningful when isFiltered). */
+  filterReason?: string;
 }): Promise<void> {
+  const filtered = args.isFiltered
+    ? `yes (${args.filterReason ?? "flagged"}) — hidden from sender`
+    : "no";
   const lines = [
     `A new reply was received (conversation ${args.conversationId}).`,
     "",
     `Sender:   ${args.senderEmail}`,
     `Receiver: ${args.receiverEmail}`,
-    `Filtered: ${args.isFiltered ? "yes" : "no"}`,
+    `Filtered: ${filtered}`,
     "",
     "Full reply text:",
     args.body,

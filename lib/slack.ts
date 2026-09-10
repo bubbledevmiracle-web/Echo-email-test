@@ -8,15 +8,21 @@ export async function sendSlackNotification(args: {
   receiverEmail: string;
   body: string;
   isFiltered: boolean;
+  /** Why moderation flagged the message (only meaningful when isFiltered). */
+  filterReason?: string;
 }): Promise<void> {
   if (!env.slackWebhookUrl) {
     throw new Error("SLACK_WEBHOOK_URL is not configured");
   }
 
+  const filteredLine = args.isFiltered
+    ? `Filtered: yes (${args.filterReason ?? "flagged"}) — hidden from sender\n`
+    : "Filtered: no\n";
+
   const text =
     `:incoming_envelope: New reply in conversation ${args.conversationId}\n` +
     `From: ${args.receiverEmail} → ${args.senderEmail}\n` +
-    `Filtered: ${args.isFiltered ? "yes" : "no"}\n` +
+    filteredLine +
     `Message: ${args.body}`;
 
   const res = await fetch(env.slackWebhookUrl, {

@@ -4,7 +4,7 @@
 // route so the moderation + notification behaviour is identical on both paths.
 
 import { addMessage, getConversation } from "./store";
-import { isProfane } from "./profanity";
+import { moderateReply } from "./moderation";
 import { sendSlackNotification } from "./slack";
 import { sendNotifyEmail } from "./email";
 
@@ -31,7 +31,8 @@ export async function processInboundReply(input: {
     return { ok: false, reason: "empty-body" };
   }
 
-  const isFiltered = isProfane(body);
+  const moderation = await moderateReply(body);
+  const isFiltered = moderation.isAbusive;
 
   // Always store the full, unfiltered text. visibleToSender is derived from
   // isFiltered inside the store.
@@ -51,6 +52,7 @@ export async function processInboundReply(input: {
       receiverEmail: conversation.receiverEmail,
       body,
       isFiltered,
+      filterReason: moderation.reason,
     }).catch((err) => {
       console.error("[inbound] Slack notification failed:", err);
       throw err;
@@ -63,6 +65,7 @@ export async function processInboundReply(input: {
           receiverEmail: conversation.receiverEmail,
           body,
           isFiltered,
+          filterReason: moderation.reason,
         }).catch((err) => {
           console.error("[inbound] Notify email failed:", err);
           throw err;
