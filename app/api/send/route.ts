@@ -12,6 +12,11 @@ function isEmail(value: unknown): value is string {
   return typeof value === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+/** Case-insensitive email comparison, tolerant of surrounding whitespace. */
+function sameEmail(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
 export async function POST(req: NextRequest) {
   let payload: unknown;
   try {
@@ -46,10 +51,29 @@ export async function POST(req: NextRequest) {
   }
 
   // Notify email: optional field, falls back to DEFAULT_NOTIFY_EMAIL (Section 8).
+  // It must be a third party — distinct from both the sender and the recipient —
+  // so moderation alerts never leak back to either participant.
   let notifyEmail = "";
   if (isEmail(notifyEmailInput)) {
+    if (
+      sameEmail(notifyEmailInput, senderEmail) ||
+      sameEmail(notifyEmailInput, receiverEmail)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Notify email must be different from the sender and recipient emails.",
+        },
+        { status: 400 },
+      );
+    }
     notifyEmail = notifyEmailInput;
-  } else if (isEmail(env.defaultNotifyEmail)) {
+  } else if (
+    isEmail(env.defaultNotifyEmail) &&
+    !sameEmail(env.defaultNotifyEmail, senderEmail) &&
+    !sameEmail(env.defaultNotifyEmail, receiverEmail)
+  ) {
+    // Only use the fallback if it too is a distinct third party.
     notifyEmail = env.defaultNotifyEmail;
   }
 
